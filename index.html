@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tower Rush (RUB)</title>
+<style>
+  body {margin:0;background:#0b0d10;color:#fff;font:16px/1.4 -apple-system,system-ui,Segoe UI,Roboto,Arial}
+  .bar{position:sticky;top:0;background:#12161c;padding:10px 12px;display:flex;gap:10px;align-items:center}
+  .bar .sp{flex:1}
+  .bar input{width:110px;padding:6px 8px;border-radius:8px;border:1px solid #334}
+  .btn{background:#2b60ff;color:#fff;border:0;border-radius:10px;padding:10px 14px;min-width:110px}
+  .wrap{max-width:520px;margin:16px auto;padding:0 12px}
+  .row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .cell{aspect-ratio:1/1;border-radius:10px;display:grid;place-items:center;background:#19202a;user-select:none}
+  .cell.pickable{outline:2px solid #2b60ff;cursor:pointer}
+  .cell.safe{background:#12291d;outline:2px solid #1fc77e}
+  .cell.bomb{background:#2a1416;outline:2px solid #ff4d4f}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <strong>Баланс:</strong><span id="bal" class="sp">1000 ₽</span>
+    <input id="amt" type="number" value="100">
+    <button id="dep" class="btn" style="background:#19c37d;color:#000">Пополнить</button>
+  </div>
+
+  <div class="wrap">
+    <h2>Tower Rush (демо)</h2>
+    <div id="grid"></div>
+  </div>
+
+<script>
+(function(){
+  const ROWS=10,COLS=5,BOMBS=1,EDGE=0.99;
+  const STEP=(COLS/(COLS-BOMBS))*EDGE;
+  let bal=1000,stake=100,grid=document.getElementById('grid');
+  let curRow=0,mult=1,inGame=false,bombs=[];
+
+  function fmt(n){return n.toLocaleString('ru-RU')+' ₽';}
+  function updBal(){document.getElementById('bal').textContent=fmt(bal);}
+  function rand(n){return Math.floor(Math.random()*n);}
+
+  function newGame(){
+    bombs=Array.from({length:ROWS},()=>new Set());
+    for(let r=0;r<ROWS;r++)while(bombs[r].size<BOMBS)bombs[r].add(rand(COLS));
+    curRow=0;mult=1;draw();
+    setRow(curRow,true);inGame=true;
+  }
+
+  function draw(){
+    grid.innerHTML='';
+    for(let r=0;r<ROWS;r++){
+      let row=document.createElement('div');row.className='row';
+      for(let c=0;c<COLS;c++){
+        let cell=document.createElement('div');cell.className='cell';
+        row.appendChild(cell);
+      }grid.appendChild(row);
+    }
+  }
+
+  function setRow(r,on){
+    let row=grid.children[r];
+    [...row.children].forEach((cell,i)=>{
+      cell.classList.toggle('pickable',on);
+      cell.onclick=on?()=>pick(r,i,cell):null;
+    });
+  }
+
+  function pick(r,c,cell){
+    if(!inGame||r!==curRow)return;
+    if(bombs[r].has(c)){cell.classList.add('bomb');inGame=false;return;}
+    cell.classList.add('safe');mult*=STEP;
+    setRow(r,false);curRow++;
+    if(curRow>=ROWS){bal+=stake*mult;updBal();inGame=false;}
+    else setRow(curRow,true);
+  }
+
+  document.getElementById('dep').onclick=()=>{bal+=+document.getElementById('amt').value||0;updBal();}
+  updBal();draw();newGame();
+})();
+</script>
+</body>
+</html>

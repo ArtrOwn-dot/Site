@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tower Rush (RUB)</title>
+<style>
+  :root { --bg:#0b0d10; --panel:#12161c; --ok:#1fc77e; --bad:#ff4d4f; --muted:#9aa4b2; }
+  html,body{margin:0;background:var(--bg);color:#fff;font:16px/1.4 -apple-system,system-ui,Segoe UI,Roboto,Arial}
+  .bar{position:sticky;top:0;background:var(--panel);padding:10px 12px;display:flex;gap:10px;align-items:center}
+  .bar .sp{flex:1}
+  .bar input{width:110px;padding:6px 8px;border-radius:8px;border:1px solid #334}
+  .btn{background:#2b60ff;color:#fff;border:0;border-radius:10px;padding:10px 14px;min-width:110px}
+  .btn:disabled{opacity:.5}
+  .wrap{max-width:520px;margin:16px auto;padding:0 12px}
+  .grid{display:grid;gap:8px;margin-top:12px}
+  .row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .cell{aspect-ratio:1/1;border-radius:10px;display:grid;place-items:center;background:#19202a;user-select:none}
+  .cell.pickable{outline:2px solid #2b60ff;cursor:pointer}
+  .cell.safe{background:#12291d;outline:2px solid var(--ok)}
+  .cell.bomb{background:#2a1416;outline:2px solid var(--bad)}
+  .stat{display:flex;justify-content:space-between;margin-top:8px;color:var(--muted)}
+  .pill{display:inline-block;background:#1a2230;border-radius:999px;padding:4px 10px;margin-left:8px;color:#ddd}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <strong>Баланс:</strong><span id="bal" class="sp">0 ₽</span>
+    <input id="amt" type="number" min="1" step="1" value="100" inputmode="numeric">
+    <button id="dep" class="btn" style="background:#19c37d;color:#000">Пополнить</button>
+  </div>
+
+  <div class="wrap">
+    <h2 style="margin:0 0 8px">Tower Rush (демо, RUB)</h2>
+    <div class="stat">
+      <div>Ставка: <span id="stake" class="pill">—</span></div>
+      <div>Множитель: <span id="mult" class="pill">1.00×</span></div>
+    </div>
+    <div id="controls" style="display:flex;gap:8px;margin-top:10px">
+      <input id="bet" type="number" min="1" step="1" value="100" inputmode="numeric" style="flex:1;padding:10px;border-radius:10px;border:1px solid #334">
+      <button id="start" class="btn">Играть</button>
+      <button id="cash" class="btn" style="background:#ffa726" disabled>Кэш-аут</button>
+    </div>
+    <div id="grid" class="grid" aria-live="polite"></div>
+  </div>
+
+<script>
+(function(){
+  // Параметры игры
+  const ROWS = 10;
+  const COLS = 5;
+  const BOMBS_PER_ROW = 1; // 1 мина на ряд
+  // «честный» шаг: cols/(cols-bombs) * edge
+  const EDGE = 0.99;
+  const STEP_MULT = (COLS/(COLS-BOMBS_PER_ROW))*EDGE; // ≈1.2375 при 5/1 и 0.99
+
+  // Состояние
+  let balance = +localStorage.getItem('tr_balance_rub') || 1000;
+  let inGame = false, curRow = 0, bombs = [], stake = 0, mult = 1.0;
+
+  // Узлы
+  const balEl = document.getElementById('bal');
+  const amtEl = document.getElementById('amt');
+  const depBtn = document.getElementById('dep');
+  const betEl = document.getElementById('bet');
+  const startBtn = document.getElementById('start');
+  const cashBtn = document.getElementById('cash');
+  const stakeEl = document.getElementById('stake');
+  const multEl = document.getElementById('mult');
+  const gridEl = document.getElementById('grid');
+
+  // Утилиты
+  const fmt = n => n.toLocaleString('ru-RU',{minimumFractionDigits:0, maximumFractionDigits:2}) + ' ₽';
+  function saveBal(){ localStorage.setItem('tr_balance_rub', String(balance)); renderBal(); }
+  function renderBal(){ balEl.textContent = fmt(balance); }
+
+  function randInt(max){ return crypto.getRandomValues(new Uint32Array(1))[0] % max; }
+
+  function newGame(){
+    bombs = Array.from({length: ROWS}, ()=> new Set());
+    for (let r=0;r<ROWS;r++){
+      while (bombs[r].size < BOMBS_PER_ROW) bombs[r].add(randInt(COLS));
+    }
+    curRow = 0; mult = 1.0;
+    stakeEl.textContent = fmt(stake);
+    multEl.textContent = mult.toFixed(2)+'×';
+    drawGrid();
+    setPickableRow(0, true);
+    inGame = true; startBtn.disabled = true; cashBtn.disabled = false; betEl.disabled = true;
+  }
+
+  function endGame(won, auto=false){
+    inGame = false; startBtn.disabled = false; cashBtn.disabled = true; betEl.disabled = false;
+    revealAll();
+    if (won){
+      const win = +(stake * mult).toFixed(2);
+      balance += win; saveBal();
+    }
+  }
+
+  function cashOut(){
+    if (!inGame) return;
+    endGame(true);
+  }
+
+  function drawGrid(){
+    gridEl.innerHTML = '';
+    gridEl.style.gridTemplateRows = `repeat(${ROWS},1fr)`;
+    for (let r=0;r<ROWS;r++){
+      const row = document.createElement('div'); row.className='row'; row.dataset.row=r;
+      for (let c=0;c<COLS;c++){
+        const cell = document.createElement('div'); cell.className='cell'; cell.dataset.col=c;
+        cell.textContent = ''; row.appendChild(cell);
+      }
+      gridEl.appendChild(row);
+    }
+  }
+
+  function setPickableRow(r, on){
+    const row = gridEl.children[r]; if (!row) return;
+    [...row.children].forEach(cell=>{
+      cell.classList.toggle('pickable', !!on);
+      cell.onclick = on ? () => pick(r, +cell.dataset.col, cell) : null;
+    });
+  }
+
+  function pick(r,c,cell){
+    if (!inGame || r!==curRow) return;
+    const isBomb = bombs[r].has(c);
+    if (isBomb){
+      cell.classList.remove('pickable'); cell.classList.add('bomb'); cell.textContent='💥';
+      // проигрыш
+      endGame(false);
+      return;
+    }
+    // безопасно
+    cell.classList.remove('pickable'); cell.classList.add('safe'); cell.textContent='⬆️';
+    mult = +(mult * STEP_MULT).toFixed(4);
+    multEl.textContent = mult.toFixed(2)+'×';
+
+    // следующая строка
+    setPickableRow(r, false);
+    curRow++;
+    if (curRow >= ROWS){
+      // дошёл до верха — авто кэш-аут
+      endGame(true, true);
+    } else {
+      setPickableRow(curRow, true);
+    }
+  }
+
+  function revealAll(){
+    for (let r=0;r<ROWS;r++){
+      const row = gridEl.children[r];
+      for (let c=0;c<COLS;c++){
+        const cell = row.children[c];
+        cell.onclick = null; cell.classList.remove('pickable');
+        if (bombs[r].has(c) && !cell.classList.contains('safe')){
+          cell.classList.add('bomb'); if (!cell.textContent) cell.textContent='💣';
+        }
+      }
+    }
+  }
+
+  // События
+  depBtn.onclick = ()=>{ const v = Math.max(0, +amtEl.value||0); balance += v; saveBal(); };
+  startBtn.onclick = ()=>{
+    if (inGame) return;
+    const b = Math.max(1, +betEl.value||0);
+    if (b > balance){ alert('Недостаточно средств'); return; }
+    stake = b; balance -= stake; saveBal(); newGame();
+  };
+  cashBtn.onclick = cashOut;
+
+  // Инициализация
+  renderBal(); drawGrid();
+
+  // Подсказка по шансам
+  console.log('STEP_MULT ≈', STEP_MULT.toFixed(4), 'Ожидаемый множитель за ряд.');
+})();
+</script>
+</body>
+</html>
